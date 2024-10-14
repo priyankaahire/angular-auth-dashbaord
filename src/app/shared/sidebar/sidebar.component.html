@@ -1,0 +1,10 @@
+<p-sidebar [(visible)]="isVisible" position="left" modal="true" [dismissableMask]="true">
+    <h3>Menu</h3>
+    <ul>
+      <li *ngFor="let item of menuItems">
+        <a (click)="item.command ? item.command() : null">
+          <i [class]="item.icon"></i> {{ item.label }}
+        </a>
+      </li>
+    </ul>
+  </p-sidebar>

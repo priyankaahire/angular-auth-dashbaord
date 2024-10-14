@@ -1,0 +1,8 @@
+<app-header (menuToggle)="toggleSidebar()"></app-header>
+<app-sidebar [isVisible]="isSidebarVisible"></app-sidebar>
+
+<div class="content">
+  <router-outlet></router-outlet> <!-- This will load the dashboard and other components -->
+</div>
+
+<app-footer></app-footer>
