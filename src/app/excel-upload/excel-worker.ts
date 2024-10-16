@@ -1,42 +1,44 @@
-/// <reference lib="webworker" />
-
-import * as ExcelJS from 'exceljs'
+import * as ExcelJS from 'exceljs';
 
 addEventListener('message', async ({ data }) => {
-  const { file, chunkSize, headerRow } = data; // Receive file, chunkSize, and headerRow from main thread
+  const { file, chunkSize, headerRow, startRow=7 } = data;
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(file);
 
-  if (file) {
-    const workbook:any = new ExcelJS.Workbook();
+  const worksheet = workbook.worksheets[0]; // Assuming the first worksheet
+  const totalRows = worksheet.rowCount;
 
-    try {
-      await workbook.xlsx.load(file); // Load the Excel file
+  // Read headers from row 6
+  const headers:any[]= [];
+  worksheet.getRow(headerRow).eachCell((cell, colNumber) => {
+    headers.push(cell.value);
+  });
 
-      const worksheet = workbook.getWorksheet(1); // Get the first worksheet
-      const totalRows = worksheet.rowCount; // Get the total number of rows
+  const allRows = []; // Stores processed rows
+  let currentChunk = []; // Chunk being processed
 
-      // Get headers from the specified headerRow
-      const columns = worksheet.getRow(headerRow).values.slice(1); // Get column headers (ignore empty index 0)
+  // Define the effective end row (default to totalRows)
+  const finalEndRow =  totalRows;
 
-      // Send the column headers to the main thread
-      postMessage({ action: 'columns', columns });
+  // Process rows from startRow to endRow or totalRows in chunks
+  for (let rowNumber = startRow; rowNumber <= finalEndRow; rowNumber++) {
+    const row: any = {};
+    worksheet.getRow(rowNumber).eachCell((cell, colNumber) => {
+      row[headers[colNumber - 1]] = cell.value;
+    });
+    currentChunk.push(row);
 
-      // Process the rows in chunks (starting from the row after the header)
-      for (let i = headerRow + 1; i <= totalRows; i += chunkSize) {
-        const rows = [];
-        for (let j = i; j < i + chunkSize && j <= totalRows; j++) {
-          const row = worksheet.getRow(j).values.slice(1); // Get row values (ignore empty index 0)
-          rows.push(row); // Add to rows array
-        }
-        // Send each chunk of rows to the main thread
-        postMessage({ action: 'chunk', rows });
-      }
+    // If the chunk reaches the specified size, process and send the chunk
+    if (currentChunk.length === chunkSize || rowNumber === finalEndRow) {
+      // Optional sorting within the chunk
+      // Send the chunk to the main thread
+      postMessage({ headers, rows: currentChunk });
 
-      // Notify the main thread when processing is complete
-      postMessage({ action: 'complete' });
-
-    } catch (error:any) {
-      // Handle errors by sending them to the main thread
-      postMessage({ action: 'error', error: error?.message });
+      // Reset the chunk array for the next set of rows
+      currentChunk = [];
     }
   }
+
+  // Send a completion message
+  postMessage({ done: true });
 });

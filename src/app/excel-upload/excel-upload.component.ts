@@ -14,38 +14,75 @@ import * as ExcelJS from 'exceljs'
 export class ExcelUploadComponent {
   data: any[] = []; // This will hold the data from the Excel file
   cols: any[] = []; // This will hold the columns
-  chunkSize = 1000; // Number of rows to process at a time
   headerRow = 6; // Specify the header row number (6)
   worker: Worker | undefined;
+
+  rows: any[] = [];         // The rows that will be displayed on the UI
+  allRows: any[] = [];       // The data coming from the web worker (chunked)
+  totalRows: number = 0;
+  chunkSize: number = 10000; // Size of chunk you want to process in the Web Worker
+  displayRows: number = 20;  // Number of rows to display on the UI
+  page: number = 0;
+  loading:boolean = false;
 
   constructor() {
     // Initialize the web worker
     if (typeof Worker !== 'undefined') {
-      this.worker = new Worker(new URL('./excel.worker', import.meta.url));
+      if (typeof Worker !== 'undefined') {
+        this.worker = new Worker(new URL('./excel.worker', import.meta.url));
+        this.worker.onmessage = ({ data }) => {
+          if (data.headers && this.cols.length === 0) {
+            this.cols = data.headers[0]; // Set headers only once
+          }
+            // Append received rows to the current dataset
+        if (data.rows) {
+          this.allRows = [...this.allRows, ...data.rows];
 
-      this.worker.onmessage = ({ data }) => {
-        if (data.action === 'columns') {
-          // Define the column structure for PrimeNG table
-          this.cols = data.columns.map((col: any) => ({ field: col, header: col }));
-        } else if (data.action === 'chunk') {
-          // Append the new chunk of rows to the existing data
-          this.data = [...this.data, ...data.rows];
-        } else if (data.action === 'complete') {
-          console.log('File processing complete');
-        } else if (data.action === 'error') {
-          console.error('Error processing file:', data.error);
+          // Load the first 20 rows initially
+          this.rows = this.allRows.slice(0, this.displayRows);
+          this.loading = false;
         }
-      };
+
+        if (data.done) {
+          this.loading = false; // Hide loader when complete
+        }
+        };
+      }
+      // this.worker = new Worker(new URL('./excel.worker', import.meta.url));
+
+      // this.worker.onmessage = ({ data }) => {
+      //   if (data.action === 'columns') {
+      //     // Define the column structure for PrimeNG table
+      //     this.cols = data.columns.map((col: any) => ({ field: col, header: col }));
+      //   } else if (data.action === 'chunk') {
+      //     // Append the new chunk of rows to the existing data
+      //     this.data = [...this.data, ...data.rows];
+      //   } else if (data.action === 'complete') {
+      //     console.log('File processing complete');
+      //   } else if (data.action === 'error') {
+      //     console.error('Error processing file:', data.error);
+      //   }
+      // };
     } else {
       console.warn('Web Workers are not supported in this environment.');
     }
   }
 
   onFileChange(event: any) {
-    const file = event.target.files[0]; // Get the uploaded file
-    if (file) {
-      this.readExcelFile(file); // Call the method to read the file
-    }
+    const file = event.target.files[0];
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const data = new Uint8Array(event.target.result as ArrayBuffer);
+      this.loading = true;
+      this.worker?.postMessage({
+        file: data,
+        chunkSize: this.chunkSize,
+        headerRow: this.headerRow,
+        startRow: this.headerRow+1,
+      });
+      //this.worker?.postMessage({ file: data, startRow: 6, chunkSize: this.chunkSize });
+    };
+    reader.readAsArrayBuffer(file);
   }
 
   async readExcelFile(file: File) {
@@ -66,17 +103,21 @@ export class ExcelUploadComponent {
     reader.readAsArrayBuffer(file);  // Read the file as an ArrayBuffer
   }
   loadData(event: any) {
-    // PrimeNG's lazy loading will request more rows as needed
-    // 'event.first' is the starting row index
-    // 'event.rows' is the number of rows to load
-    const start = event.first;
-    const end = event.first + event.rows;
-    
-    // Load rows from the pre-processed chunks (Web Worker)
-    const chunk = this.data.slice(start, end);
-    if (chunk.length) {
-      this.data = [...this.data, ...chunk]; // Append loaded chunk
-    }
+    this.loading = true;
+
+    const startRow = this.displayRows * this.page;
+    const endRow = startRow + this.displayRows;
+
+    // Load more rows when scrolling reaches the bottom
+    this.rows = [
+      ...this.rows,
+      ...this.allRows.slice(startRow, endRow) // Load the next set of rows
+    ];
+    this.page++;
+    // Hide loader after lazy loading
+    setTimeout(() => {
+      this.loading = false;
+    }, 500); // Delay to simulate loading time
   }
   
 }
