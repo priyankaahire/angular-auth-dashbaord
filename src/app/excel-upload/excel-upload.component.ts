@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
+import * as ExcelJS from 'exceljs'
 
 @Component({
   selector: 'app-excel-upload',
@@ -11,9 +12,10 @@ import { TableModule } from 'primeng/table';
   styleUrl: './excel-upload.component.scss'
 })
 export class ExcelUploadComponent {
-  data: any[] = [];
-  cols: any[] = [];
+  data: any[] = []; // This will hold the data from the Excel file
+  cols: any[] = []; // This will hold the columns
   chunkSize = 1000; // Number of rows to process at a time
+  headerRow = 6; // Specify the header row number (6)
   worker: Worker | undefined;
 
   constructor() {
@@ -22,9 +24,13 @@ export class ExcelUploadComponent {
       this.worker = new Worker(new URL('./excel.worker', import.meta.url));
 
       this.worker.onmessage = ({ data }) => {
-        if (data.action === 'chunkProcessed') {
-          this.data = [...this.data, ...data.rows]; // Append new chunk
-        } else if (data.action === 'processingComplete') {
+        if (data.action === 'columns') {
+          // Define the column structure for PrimeNG table
+          this.cols = data.columns.map((col: any) => ({ field: col, header: col }));
+        } else if (data.action === 'chunk') {
+          // Append the new chunk of rows to the existing data
+          this.data = [...this.data, ...data.rows];
+        } else if (data.action === 'complete') {
           console.log('File processing complete');
         } else if (data.action === 'error') {
           console.error('Error processing file:', data.error);
@@ -36,24 +42,29 @@ export class ExcelUploadComponent {
   }
 
   onFileChange(event: any) {
-    const file = event.target.files[0];
+    const file = event.target.files[0]; // Get the uploaded file
     if (file) {
-      this.readFile(file);
+      this.readExcelFile(file); // Call the method to read the file
     }
   }
 
-  readFile(file: File) {
+  async readExcelFile(file: File) {
+    const workbook = new ExcelJS.Workbook();
     const reader = new FileReader();
-    reader.onload = () => {
-      const arrayBuffer = reader.result as ArrayBuffer;
-      if (this.worker) {
-        this.worker.postMessage({ file: arrayBuffer, chunkSize: this.chunkSize });
-      }
+    
+    reader.onload = async (e: any) => {
+      const arrayBuffer = e.target.result;
+      
+      await workbook.xlsx.load(arrayBuffer);  // Load the Excel file
+
+      const worksheet:any = workbook.getWorksheet(1);  // Get the first worksheet
+      worksheet.eachRow((row:any, rowNumber:any) => {
+        console.log('Row ' + rowNumber + ' = ' + JSON.stringify(row.values));  // Log row data
+      });
     };
 
-    reader.readAsArrayBuffer(file); // Read as ArrayBuffer for ExcelJS processing
+    reader.readAsArrayBuffer(file);  // Read the file as an ArrayBuffer
   }
-
   loadData(event: any) {
     // PrimeNG's lazy loading will request more rows as needed
     // 'event.first' is the starting row index
